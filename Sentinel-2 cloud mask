@@ -1,0 +1,106 @@
+// Replace your lake or water area study area 
+var table = /* color: #d63000 */ee.FeatureCollection(
+        [ee.Feature(
+            ee.Geometry.Polygon(
+                [[[119.07210062464114, 31.155809823586278],
+                  [119.03776834925051, 31.169911322818844],
+                  [118.98146341760989, 31.182835853141867],
+                  [118.94438456018801, 31.1417062258119],
+                  [118.87572000940676, 31.13817999853468],
+                  [118.83177469690676, 31.1417062258119],
+                  [118.83314798792239, 31.08997508855288],
+                  [118.90593241175051, 31.080566398883136],
+                  [119.01716898401614, 31.01585645278209]]]),
+            {
+              "system:index": "0"
+            }),
+        ee.Feature(
+            ee.Geometry.Polygon(
+                [[[118.88601969202395, 31.228644969172464],
+                  [118.9217252584302, 31.243909743130878],
+                  [118.96773050745364, 31.299077185798975],
+                  [118.9491910787427, 31.31081077643819],
+                  [118.9272184224927, 31.30259741642318],
+                  [118.9052457662427, 31.30670418593704],
+                  [118.89563272913333, 31.31667702373826],
+                  [118.87366007288333, 31.310224131612756],
+                  [118.90662658571651, 31.295620273378745],
+                  [118.90662265276147, 31.24463307153176],
+                  [118.88602236373885, 31.241259267530225]]]),
+            {
+              "system:index": "1"
+            })]);
+var geometry = table.geometry();
+
+//Define the chl-a 
+function chla_index(image){
+  var ndvi = image.normalizedDifference(['B8', 'B4']);
+
+  var chla = image.expression('0.0918*ndvi+0.0945',{
+    'ndvi':ndvi
+  })
+  
+  return image.addBands(ndvi.rename('NDVI')).addBands(chla.rename('CHLA'))
+  
+}
+
+
+// 'QA60' Cloud Mask
+function maskS2clouds(image) {
+  var qa = image.select('QA60');
+
+  // Bits 10 and 11 are clouds and cirrus, respectively.
+  var cloudBitMask = 1 << 10;
+  var cirrusBitMask = 1 << 11;
+
+  // Both flags should be set to zero, indicating clear conditions.
+  var mask = qa.bitwiseAnd(cloudBitMask).eq(0)
+      .and(qa.bitwiseAnd(cirrusBitMask).eq(0));
+
+  return image.updateMask(mask).divide(10000);
+}
+
+
+///////////////////////////Data preprocessing //////////////////////////////
+
+var S2 = ee.ImageCollection('COPERNICUS/S2_SR_HARMONIZED')
+                  .filterBounds(geometry)
+                  .filter(ee.Filter.lt('CLOUDY_PIXEL_PERCENTAGE',20))//
+                  .map(maskS2clouds).map(chla_index);
+print(S2)
+
+// Batch calculation annual chla
+for (var i =2019;i<=2023;i++){
+
+var chlayear = S2.filter(ee.Filter.calendarRange(i,  i,'year')).select('CHLA').mosaic().clip(geometry)
+
+//print(i+'year chla',chlayear)
+
+//Mean chlorophyll values for each year
+var stats = chlayear.select('CHLA').reduceRegions({
+  collection:table, 
+    reducer:ee.Reducer.mean().combine({
+		reducer2:ee.Reducer.minMax(),
+	  sharedInputs:true,
+}), 
+  scale:10, 
+  crs:'EPSG:4326'})
+print(i+'stats',stats)
+
+//Export to Google Drive
+Export.table.toDrive({
+	collection:chlayear,
+	description:'S2_chla_mean_year'+i,
+	folder:'S2_chla',
+	selectors:['lake area','ID','max','mean','min'],
+})
+
+//Export to GEE Asset
+Export.image.toAsset({
+	image:chlayear,
+	description:'chla_image'+i,
+	scale:100,
+	maxPixels:1e13,
+})
+
+}
