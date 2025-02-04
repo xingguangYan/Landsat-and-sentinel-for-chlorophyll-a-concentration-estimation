@@ -1,0 +1,157 @@
+/**** Start of imports. If edited, may not auto-convert in the playground. ****/
+var table = /* color: #d63000 */ee.FeatureCollection(
+        [ee.Feature(
+            ee.Geometry.Polygon(
+                [[[119.07210062464114, 31.155809823586278],
+                  [119.03776834925051, 31.169911322818844],
+                  [118.98146341760989, 31.182835853141867],
+                  [118.94438456018801, 31.1417062258119],
+                  [118.87572000940676, 31.13817999853468],
+                  [118.83177469690676, 31.1417062258119],
+                  [118.83314798792239, 31.08997508855288],
+                  [118.90593241175051, 31.080566398883136],
+                  [119.01716898401614, 31.01585645278209]]]),
+            {
+              "system:index": "0"
+            }),
+        ee.Feature(
+            ee.Geometry.Polygon(
+                [[[118.88601969202395, 31.228644969172464],
+                  [118.9217252584302, 31.243909743130878],
+                  [118.96773050745364, 31.299077185798975],
+                  [118.9491910787427, 31.31081077643819],
+                  [118.9272184224927, 31.30259741642318],
+                  [118.9052457662427, 31.30670418593704],
+                  [118.89563272913333, 31.31667702373826],
+                  [118.87366007288333, 31.310224131612756],
+                  [118.90662658571651, 31.295620273378745],
+                  [118.90662265276147, 31.24463307153176],
+                  [118.88602236373885, 31.241259267530225]]]),
+            {
+              "system:index": "1"
+            })]);
+/***** End of imports. If edited, may not auto-convert in the playground. *****/
+// Replace your lake or water area study area 
+var table = /* color: #d63000 */ee.FeatureCollection(
+        [ee.Feature(
+            ee.Geometry.Polygon(
+                [[[119.07210062464114, 31.155809823586278],
+                  [119.03776834925051, 31.169911322818844],
+                  [118.98146341760989, 31.182835853141867],
+                  [118.94438456018801, 31.1417062258119],
+                  [118.87572000940676, 31.13817999853468],
+                  [118.83177469690676, 31.1417062258119],
+                  [118.83314798792239, 31.08997508855288],
+                  [118.90593241175051, 31.080566398883136],
+                  [119.01716898401614, 31.01585645278209]]]),
+            {
+              "system:index": "0"
+            }),
+        ee.Feature(
+            ee.Geometry.Polygon(
+                [[[118.88601969202395, 31.228644969172464],
+                  [118.9217252584302, 31.243909743130878],
+                  [118.96773050745364, 31.299077185798975],
+                  [118.9491910787427, 31.31081077643819],
+                  [118.9272184224927, 31.30259741642318],
+                  [118.9052457662427, 31.30670418593704],
+                  [118.89563272913333, 31.31667702373826],
+                  [118.87366007288333, 31.310224131612756],
+                  [118.90662658571651, 31.295620273378745],
+                  [118.90662265276147, 31.24463307153176],
+                  [118.88602236373885, 31.241259267530225]]]),
+            {
+              "system:index": "1"
+            })]);
+var geometry = table.geometry();
+
+//Define the chl-a 
+function chla_index(image){
+  var ndvi = image.normalizedDifference(['SR_B4', 'SR_B3']);
+
+  var chla = image.expression('0.0918*ndvi+0.0945',{
+    'ndvi':ndvi
+  })
+  return image.addBands(ndvi.rename('NDVI')).addBands(chla.rename('CHLA'))
+}
+
+//Landsat 'QA_PIXEL' Cloud Mask
+function maskLsr(image) {
+  // Bit 0 - Fill
+  // Bit 1 - Dilated Cloud
+  // Bit 2 - Unused
+  // Bit 3 - Cloud
+  // Bit 4 - Cloud Shadow
+  var qaMask = image.select('QA_PIXEL').bitwiseAnd(parseInt('11111', 2)).eq(0);
+  var saturationMask = image.select('QA_RADSAT').eq(0);
+ 
+  // Apply the scaling factors to the appropriate bands.
+  var opticalBands = image.select('SR_B.').multiply(0.0000275).add(-0.2);
+  var thermalBand = image.select('ST_B.*').multiply(0.00341802).add(149.0);
+ 
+  // Replace the original bands with the scaled ones and apply the masks.
+  return image.addBands(opticalBands, null, true)
+      .addBands(thermalBand, null, true)
+      .updateMask(qaMask)
+      .updateMask(saturationMask);
+}
+ 
+ 
+// Landat 5 surface reflection data
+var L5coll = ee.ImageCollection('LANDSAT/LT05/C02/T1_L2')
+.filter(ee.Filter.lt('CLOUD_COVER',20))
+.filterDate('1987-01-01','2012-01-01')
+.map(maskLsr)
+.select(['SR_B7','ST_B6','SR_B5','SR_B4','SR_B3', 'SR_B2', 'SR_B1'])
+.filterBounds(geometry)
+
+// Landat 7 surface reflection data
+var L7coll = ee.ImageCollection('LANDSAT/LE07/C02/T1_L2')
+.filter(ee.Filter.lt('CLOUD_COVER',20))
+.filterDate('2012-01-01','2013-01-01')
+.map(maskLsr)
+.select(['SR_B7','ST_B6','SR_B5','SR_B4','SR_B3', 'SR_B2', 'SR_B1'])
+.filterBounds(geometry)
+
+// Landat 8 surface reflection data
+var L8coll = ee.ImageCollection('LANDSAT/LC08/C02/T1_L2')
+.filter(ee.Filter.lt('CLOUD_COVER',20))
+.filterDate('2013-01-01','2024-01-01')
+.filterBounds(geometry).map(maskLsr)
+.select(['SR_B7','ST_B10','SR_B6','SR_B5','SR_B4', 'SR_B3', 'SR_B2'],['SR_B7','ST_B6','SR_B5','SR_B4','SR_B3', 'SR_B2', 'SR_B1']);
+
+// Calculte all chl-a
+var col = L5coll.merge(L7coll).merge(L8coll).map(chla_index)
+print(col)
+
+// Batch statistics
+for (var i =1986;i<=2023;i++){
+var chlayear = col.map(chla_index).filter(ee.Filter.calendarRange(i,  i,'year'))
+              .select('CHLA').mosaic().clip(geometry)
+//Statistics of mean, min and max chlorophyll a values for each year
+var stats = chlayear.select('CHLA').reduceRegions({ 
+                        collection:geometry, 
+                        reducer:ee.Reducer.mean().combine({
+		                    reducer2:ee.Reducer.minMax(),
+	                      sharedInputs:true,
+}), 
+scale:30, crs:'EPSG:4326'})
+
+print(i+'year stats',stats)
+
+Export.table.toDrive({
+	collection:stats,
+	description:'chla_mean'+i+'year',
+	folder:'chla',
+//	selectors:['max','mean','min'],
+})
+
+Export.image.toAsset({
+	image:chlayear,
+	description:'chla_image'+i,
+	scale:100,
+	maxPixels:1e13,
+})
+
+}
+
